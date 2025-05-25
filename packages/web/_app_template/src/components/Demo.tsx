@@ -45,12 +45,11 @@ export default function Demo(
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const hasSolanaProvider = useHasSolanaProvider();
-  let solanaWallet, solanaPublicKey, solanaSignMessage, solanaAddress;
-  if (hasSolanaProvider) {
-    solanaWallet = useSolanaWallet();
-    ({ publicKey: solanaPublicKey, signMessage: solanaSignMessage } = solanaWallet);
-    solanaAddress = solanaPublicKey?.toBase58();
-  }
+
+  // Always call hooks, but handle the conditional logic differently
+  const solanaWallet = useSolanaWallet();
+  const { publicKey: solanaPublicKey, signMessage: solanaSignMessage } = solanaWallet;
+  const solanaAddress = hasSolanaProvider ? solanaPublicKey?.toBase58() : undefined;
 
   useEffect(() => {
     console.log("isSDKLoaded", isSDKLoaded);
@@ -198,9 +197,8 @@ export default function Demo(
             className="flex items-center gap-2 transition-colors"
           >
             <span
-              className={`transform transition-transform ${
-                isContextOpen ? "rotate-90" : ""
-              }`}
+              className={`transform transition-transform ${isContextOpen ? "rotate-90" : ""
+                }`}
             >
               ➤
             </span>
@@ -305,7 +303,7 @@ export default function Demo(
           </div>
 
           <div className="mb-4">
-            <Button 
+            <Button
               onClick={async () => {
                 if (context?.user?.fid) {
                   const shareUrl = `${process.env.NEXT_PUBLIC_URL}/share/${context.user.fid}`;
@@ -397,8 +395,8 @@ export default function Demo(
                       {isConfirming
                         ? "Confirming..."
                         : isConfirmed
-                        ? "Confirmed!"
-                        : "Pending"}
+                          ? "Confirmed!"
+                          : "Pending"}
                     </div>
                   </div>
                 )}
@@ -657,8 +655,8 @@ function SendEth() {
             {isConfirming
               ? "Confirming..."
               : isConfirmed
-              ? "Confirmed!"
-              : "Pending"}
+                ? "Confirmed!"
+                : "Pending"}
           </div>
         </div>
       )}
