@@ -12,13 +12,41 @@ export default function Home() {
     e.preventDefault();
     setLoading(true);
     setSuccess(false);
+    setVercelUrl(""); // Reset Vercel URL
 
-    // Simulate API call for now
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    const mockVercelUrl = "https://your-miniapp-deployment-url.vercel.app"; // Replace with actual Vercel URL later
-    setVercelUrl(mockVercelUrl);
-    setLoading(false);
-    setSuccess(true);
+    try {
+      const response = await fetch('/api/create-repo', {
+        method: 'POST',
+        // We can pass the prompt or other data in the body later if needed
+        // body: JSON.stringify({ userInput: prompt }),
+        // headers: {
+        //   'Content-Type': 'application/json',
+        // },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create repository.');
+      }
+
+      console.log('Repository created:', data);
+      // TODO: Proceed to copy template, push to repo, and deploy to Vercel
+      // For now, simulate success and set a mock Vercel URL
+
+      // Simulate further backend processing for template copying and Vercel deployment
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const mockVercelUrl = "https://your-miniapp-deployment-url.vercel.app";
+      setVercelUrl(mockVercelUrl);
+      setSuccess(true);
+
+    } catch (error: any) {
+      console.error('Error in handleSubmit:', error);
+      alert(`Error: ${error.message}`); // Replace with a better error display
+      setSuccess(false);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
