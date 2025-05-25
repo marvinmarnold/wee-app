@@ -61,7 +61,7 @@ export function useFrame() {
     } catch (error) {
       if (error instanceof AddMiniApp.RejectedByUser || error instanceof AddMiniApp.InvalidDomainManifest) {
         setAddFrameResult(`Not added: ${error.message}`);
-      }else {
+      } else {
         setAddFrameResult(`Error: ${error}`);
       }
     }
@@ -75,14 +75,14 @@ export function useFrame() {
 
       const amplitudeBaseEvent = {
         fid: context.user.fid,
-        username: context.user.username,
+        username: context.user.username ?? 'unknown',
         clientFid: context.client.clientFid,
       };
       const amplitudeUserId = `${context.user.fid}-${context.client.clientFid}`;
 
       logEvent("Frame Opened", {
         ...amplitudeBaseEvent,
-        location: context.location,
+        location: context.location ? JSON.stringify(context.location) : 'unknown',
         added: context.client.added,
       }, amplitudeUserId);
 
