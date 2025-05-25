@@ -98,12 +98,12 @@ export default function Home() {
               <li>
                 Open the Warpcast Mini App Developer Tools:{" "}
                 <a
-                  href="https://warpcast.com/~/developers"
+                  href="https://farcaster.xyz/~/developers"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-blue-600 hover:underline"
                 >
-                  https://warpcast.com/~/developers
+                  https://farcaster.xyz/~/developers
                 </a>
               </li>
               <li>Scroll down to the &quot;Preview Mini App&quot; tool.</li>

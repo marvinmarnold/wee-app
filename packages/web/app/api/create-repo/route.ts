@@ -213,7 +213,7 @@ export async function POST() {
                 console.log(`Polling for Vercel deployment ID: ${specificDeploymentIdToPoll}`);
                 let deploymentReady = false;
                 let deploymentError = false;
-                let finalDeploymentUrl = `https://${triggeredDeploymentData.url}`; // Initial URL from trigger response
+                const finalDeploymentUrl = `https://${vercelProjectData.name}.vercel.app`; // Production URL
                 const maxRetries = 60;
                 const retryInterval = 5000;
 
@@ -240,7 +240,6 @@ export async function POST() {
 
                     if (deploymentData.readyState === 'READY') {
                         deploymentReady = true;
-                        finalDeploymentUrl = `https://${deploymentData.url}`; // Update with final URL if different
                         break;
                     } else if (deploymentData.readyState === 'ERROR' || deploymentData.readyState === 'CANCELED' || deploymentData.readyState === 'FAILED') {
                         deploymentError = true;

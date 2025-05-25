@@ -18,16 +18,16 @@ let isCleaningUp = false;
 async function checkPort(port) {
   return new Promise((resolve) => {
     const server = createServer();
-    
+
     server.once('error', () => {
       resolve(true); // Port is in use
     });
-    
+
     server.once('listening', () => {
       server.close();
       resolve(false); // Port is free
     });
-    
+
     server.listen(port);
   });
 }
@@ -71,10 +71,10 @@ async function startDev() {
   const isPortInUse = await checkPort(3000);
   if (isPortInUse) {
     console.error('Port 3000 is already in use. To find and kill the process using this port:\n\n' +
-      (process.platform === 'win32' 
+      (process.platform === 'win32'
         ? '1. Run: netstat -ano | findstr :3000\n' +
-          '2. Note the PID (Process ID) from the output\n' +
-          '3. Run: taskkill /PID <PID> /F\n'
+        '2. Note the PID (Process ID) from the output\n' +
+        '3. Run: taskkill /PID <PID> /F\n'
         : `On macOS/Linux, run:\nnpm run cleanup\n`) +
       '\nThen try running this command again.');
     process.exit(1);
@@ -120,13 +120,13 @@ async function startDev() {
     frameUrl = 'http://localhost:3000';
     console.log(`
 💻 To test your mini app:
-   1. Open the Warpcast Mini App Developer Tools: https://warpcast.com/~/developers
+   1. Open the Warpcast Mini App Developer Tools: https://farcaster.xyz/~/developers
    2. Scroll down to the "Preview Mini App" tool
    3. Enter this URL: ${frameUrl}
    4. Click "Preview" to test your mini app (note that it may take ~5 seconds to load the first time)
 `);
   }
-  
+
   // Start next dev with appropriate configuration
   const nextBin = path.normalize(path.join(projectRoot, 'node_modules', '.bin', 'next'));
 
@@ -164,7 +164,7 @@ async function startDev() {
           console.log('Note: Next.js process already terminated');
         }
       }
-      
+
       if (tunnel) {
         try {
           await tunnel.close();
