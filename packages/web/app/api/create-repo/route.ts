@@ -5,12 +5,30 @@ import { execSync, ExecException } from 'child_process';
 
 // Helper function copyDirRecursiveSync removed
 
+// Define a type for the Vercel deployment trigger body if specific fields are known,
+// otherwise, leave as a broader type if structure is very dynamic or less critical for strong typing here.
+interface VercelTriggerDeploymentBody {
+    name: string;
+    gitSource: {
+        type: string;
+        repoId: number; // Assuming repoData.id is a number from GitHub API
+        ref: string;
+    };
+    target: string;
+}
+
 export async function POST() {
-    const { GITHUB_TOKEN, GITHUB_USERNAME } = process.env;
+    const { GITHUB_TOKEN, GITHUB_USERNAME, VERCEL_TOKEN, VERCEL_TEAM_ID } = process.env;
 
     if (!GITHUB_TOKEN || !GITHUB_USERNAME) {
         return NextResponse.json(
             { error: 'GitHub token or username not configured.' },
+            { status: 500 }
+        );
+    }
+    if (!VERCEL_TOKEN) {
+        return NextResponse.json(
+            { error: 'Vercel token not configured.' },
             { status: 500 }
         );
     }
@@ -42,9 +60,9 @@ export async function POST() {
             );
         }
 
-        const repoData = await createRepoResponse.json();
+        const repoData = await createRepoResponse.json() as { id: number; name: string; html_url: string; ssh_url: string; clone_url: string };
 
-        const templatePath = path.resolve(process.cwd(), 'template');
+        const templatePath = path.resolve(process.cwd(), '_app_template');
         const tempBaseDir = path.join('/tmp', 'weeapp-processing');
         const tempRepoPath = path.join(tempBaseDir, repoData.name);
 
@@ -129,12 +147,135 @@ export async function POST() {
                 console.log('Skipping push as no commits were made.');
             }
 
+            // GitHub operations successful, proceed to Vercel
+            let vercelProjectUrl = '';
+            try {
+                console.log(`Creating Vercel project for GitHub repo: ${GITHUB_USERNAME}/${repoData.name}`);
+                const vercelApiProjectsUrl = VERCEL_TEAM_ID
+                    ? `https://api.vercel.com/v10/projects?teamId=${VERCEL_TEAM_ID}`
+                    : 'https://api.vercel.com/v10/projects';
+
+                const vercelProjectResponse = await fetch(vercelApiProjectsUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${VERCEL_TOKEN}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        name: repoData.name,
+                        framework: 'nextjs',
+                        gitRepository: {
+                            type: 'github',
+                            repo: `${GITHUB_USERNAME}/${repoData.name}`,
+                        },
+                    }),
+                });
+
+                if (!vercelProjectResponse.ok) {
+                    const errorData = await vercelProjectResponse.json();
+                    console.error('Vercel API Error (Create Project):', errorData);
+                    throw new Error(`Failed to create Vercel project: ${errorData.error?.message || vercelProjectResponse.statusText}`);
+                }
+                const vercelProjectData = await vercelProjectResponse.json();
+                console.log('Vercel project created:', vercelProjectData.id, vercelProjectData.name);
+
+                // --- Explicitly Trigger Vercel Deployment ---
+                console.log(`Explicitly triggering deployment for Vercel project: ${vercelProjectData.id}`);
+                const triggerDeploymentBody: VercelTriggerDeploymentBody = {
+                    name: vercelProjectData.name, // Project name
+                    gitSource: {
+                        type: 'github',
+                        repoId: repoData.id, // GitHub repo ID (numeric from GitHub API response)
+                        ref: 'main',
+                    },
+                    target: 'production',
+                };
+
+                const triggerDeploymentResponse = await fetch(`https://api.vercel.com/v13/deployments${VERCEL_TEAM_ID ? `?teamId=${VERCEL_TEAM_ID}` : ''}`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${VERCEL_TOKEN}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(triggerDeploymentBody),
+                });
+
+                if (!triggerDeploymentResponse.ok) {
+                    const errorData = await triggerDeploymentResponse.json();
+                    console.error('Vercel API Error (Trigger Deployment):', errorData);
+                    throw new Error(`Failed to trigger Vercel deployment: ${errorData.error?.message || triggerDeploymentResponse.statusText}`);
+                }
+                const triggeredDeploymentData = await triggerDeploymentResponse.json();
+                console.log('Vercel deployment triggered:', triggeredDeploymentData.id, triggeredDeploymentData.url);
+                const specificDeploymentIdToPoll = triggeredDeploymentData.id; // Changed to const
+
+                // --- Poll for Vercel deployment completion ---
+                console.log(`Polling for Vercel deployment ID: ${specificDeploymentIdToPoll}`);
+                let deploymentReady = false;
+                let deploymentError = false;
+                let finalDeploymentUrl = `https://${triggeredDeploymentData.url}`; // Initial URL from trigger response
+                const maxRetries = 60;
+                const retryInterval = 5000;
+
+                for (let i = 0; i < maxRetries; i++) {
+                    await new Promise(resolve => setTimeout(resolve, retryInterval));
+
+                    // Poll the specific deployment ID
+                    const deploymentStatusApiUrl = VERCEL_TEAM_ID
+                        ? `https://api.vercel.com/v13/deployments/${specificDeploymentIdToPoll}?teamId=${VERCEL_TEAM_ID}`
+                        : `https://api.vercel.com/v13/deployments/${specificDeploymentIdToPoll}`;
+
+                    const deploymentStatusResponse = await fetch(deploymentStatusApiUrl, {
+                        headers: { 'Authorization': `Bearer ${VERCEL_TOKEN}` },
+                    });
+
+                    if (!deploymentStatusResponse.ok) {
+                        const errorData = await deploymentStatusResponse.json();
+                        console.error('Vercel API Error (Get Deployment Status):', errorData);
+                        continue;
+                    }
+
+                    const deploymentData = await deploymentStatusResponse.json();
+                    console.log(`Vercel deployment ID ${deploymentData.id} state: ${deploymentData.readyState}, URL: ${deploymentData.url}`);
+
+                    if (deploymentData.readyState === 'READY') {
+                        deploymentReady = true;
+                        finalDeploymentUrl = `https://${deploymentData.url}`; // Update with final URL if different
+                        break;
+                    } else if (deploymentData.readyState === 'ERROR' || deploymentData.readyState === 'CANCELED' || deploymentData.readyState === 'FAILED') {
+                        deploymentError = true;
+                        console.error('Vercel deployment failed or was canceled:', deploymentData.meta?.error || deploymentData.errorMessage || 'Unknown deployment error');
+                        break;
+                    }
+                    console.log(`Polling attempt ${i + 1}/${maxRetries} complete for deployment ${specificDeploymentIdToPoll}.`);
+                }
+
+                if (!deploymentReady || deploymentError) {
+                    throw new Error(deploymentError ? 'Vercel deployment failed or was canceled.' : 'Vercel deployment timed out.');
+                }
+
+                vercelProjectUrl = finalDeploymentUrl;
+
+            } catch (vercelError: unknown) {
+                console.error('Error during Vercel project creation or deployment polling:', (vercelError as Error).message);
+                return NextResponse.json(
+                    {
+                        message: 'GitHub repository created and template pushed, but Vercel operation failed.',
+                        repoName: repoData.name,
+                        repoUrl: repoData.html_url,
+                        error: `Vercel operation failed: ${(vercelError as Error).message}`
+                    },
+                    { status: 500 }
+                );
+            }
+
             fs.rmSync(tempRepoPath, { recursive: true, force: true });
 
             return NextResponse.json({
-                message: 'Repository created and template pushed successfully!',
+                message: 'Repository created, template pushed, and Vercel project deployed!',
                 repoName: repoData.name,
                 repoUrl: repoData.html_url,
+                vercelUrl: vercelProjectUrl,
             });
 
         } catch (gitOpsError: unknown) {
