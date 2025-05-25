@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "next build",
+    "prebuild": "rm -rf ./internal_template && cp -a ../../packages/template ./internal_template",
+    "build": "npm run prebuild && next build",
     "start": "next start",
     "lint": "next lint"
   },

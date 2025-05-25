@@ -40,9 +40,13 @@ export default function Home() {
       setVercelUrl(mockVercelUrl);
       setSuccess(true);
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error in handleSubmit:', error);
-      alert(`Error: ${error.message}`); // Replace with a better error display
+      let errorMessage = "An unexpected error occurred.";
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      alert(`Error: ${errorMessage}`); // Replace with a better error display
       setSuccess(false);
     } finally {
       setLoading(false);
@@ -80,7 +84,7 @@ export default function Home() {
         {loading && (
           <div className="mt-8 text-center">
             <p className="text-lg text-gray-700">
-              Hold tight! We're building your miniapp...
+              Hold tight! We&apos;re building your miniapp...
             </p>
             {/* You can add a spinner or a more elaborate loading animation here */}
           </div>
@@ -106,7 +110,7 @@ export default function Home() {
                   https://warpcast.com/~/developers
                 </a>
               </li>
-              <li>Scroll down to the "Preview Mini App" tool.</li>
+              <li>Scroll down to the &quot;Preview Mini App&quot; tool.</li>
               <li>
                 Enter this URL:{" "}
                 <code className="bg-gray-200 px-1 py-0.5 rounded font-mono">
@@ -114,7 +118,7 @@ export default function Home() {
                 </code>
               </li>
               <li>
-                Click "Preview" to test your mini app (note that it may take ~5
+                Click &quot;Preview&quot; to test your mini app (note that it may take ~5
                 seconds to load the first time).
               </li>
             </ol>
