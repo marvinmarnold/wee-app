@@ -3,6 +3,44 @@ import fs from 'fs';
 import path from 'path';
 import { execSync, ExecException } from 'child_process';
 
+// Helper function to recursively copy directory contents
+function copyDirRecursiveSync(src: string, dest: string) {
+    console.log(`[copyDirRecursiveSync] Attempting to copy from ${src} to ${dest}`);
+    const exists = fs.existsSync(src);
+    if (!exists) {
+        console.log(`[copyDirRecursiveSync] Source path ${src} does not exist.`);
+        return;
+    }
+
+    const stats = fs.statSync(src);
+    const isDirectory = stats.isDirectory();
+
+    if (isDirectory) {
+        console.log(`[copyDirRecursiveSync] ${src} is a directory.`);
+        if (!fs.existsSync(dest)) {
+            console.log(`[copyDirRecursiveSync] Creating destination directory ${dest}`);
+            fs.mkdirSync(dest, { recursive: true });
+        } else {
+            console.log(`[copyDirRecursiveSync] Destination directory ${dest} already exists.`);
+        }
+        const children = fs.readdirSync(src);
+        console.log(`[copyDirRecursiveSync] Children of ${src}: ${children.join(', ') || '[NONE]'}`);
+        if (children.length === 0) {
+            console.log(`[copyDirRecursiveSync] Source directory ${src} is empty. Nothing to copy from here.`);
+        }
+        children.forEach((childItemName) => {
+            copyDirRecursiveSync(
+                path.join(src, childItemName),
+                path.join(dest, childItemName)
+            );
+        });
+    } else {
+        console.log(`[copyDirRecursiveSync] ${src} is a file. Copying to ${dest}`);
+        fs.copyFileSync(src, dest);
+        console.log(`[copyDirRecursiveSync] Copied file ${src} to ${dest}`);
+    }
+}
+
 export async function POST() {
     const { GITHUB_TOKEN, GITHUB_USERNAME } = process.env;
 
@@ -43,7 +81,7 @@ export async function POST() {
         const repoData = await createRepoResponse.json();
 
         // Paths
-        const templatePath = path.resolve(process.cwd(), 'internal_template');
+        const templatePath = path.resolve(process.cwd(), 'template');
         const tempBaseDir = path.join('/tmp', 'weeapp-processing'); // Use Vercel's writable /tmp directory
         const tempRepoPath = path.join(tempBaseDir, repoData.name);
 
@@ -59,10 +97,44 @@ export async function POST() {
             // 3. Create the temporary directory for the new repo content
             fs.mkdirSync(tempRepoPath, { recursive: true });
 
-            // 4. Copy template files (cp -a preserves attributes and copies recursively, including dotfiles)
-            execSync(`cp -a "${templatePath}/." "${tempRepoPath}/"`, { stdio: 'pipe' });
+            console.log(`Copying template from ${templatePath} to ${tempRepoPath} using Node.js fs module...`);
+            // 4. Programmatically copy template files
+            try {
+                copyDirRecursiveSync(templatePath, tempRepoPath);
+            } catch (copyError: unknown) {
+                console.error('Error programmatically copying template files:', (copyError as Error).message);
+                // Attempt to clean up the temp directory on error too
+                if (fs.existsSync(tempRepoPath)) {
+                    fs.rmSync(tempRepoPath, { recursive: true, force: true });
+                }
+                return NextResponse.json(
+                    { error: `Failed to copy template files: ${(copyError as Error).message}` },
+                    { status: 500 }
+                );
+            }
 
-            // 5. Remove existing .git directory from template if it exists
+            console.log('Listing contents of tempRepoPath after programmatic copy:');
+            try {
+                const filesInTemp = execSync('ls -la', { cwd: tempRepoPath, stdio: 'pipe' }).toString();
+                console.log(filesInTemp);
+            } catch (lsError: unknown) {
+                console.error('Error listing files in tempRepoPath:', (lsError as Error).message);
+            }
+
+            const templateGitignorePath = path.join(tempRepoPath, '.gitignore');
+            if (fs.existsSync(templateGitignorePath)) {
+                try {
+                    const gitignoreContent = fs.readFileSync(templateGitignorePath, 'utf8');
+                    console.log('Content of .gitignore in template:');
+                    console.log(gitignoreContent);
+                } catch (readError: unknown) {
+                    console.error('Error reading .gitignore in template:', (readError as Error).message);
+                }
+            } else {
+                console.log('No .gitignore file found at the root of the copied template.');
+            }
+
+            // 5. Remove existing .git directory from template if it exists (should not be there if template is clean)
             const templateGitDir = path.join(tempRepoPath, '.git');
             if (fs.existsSync(templateGitDir)) {
                 fs.rmSync(templateGitDir, { recursive: true, force: true });
@@ -72,19 +144,50 @@ export async function POST() {
             const gitUserEmail = `${GITHUB_USERNAME}@users.noreply.github.com`;
             const remoteUrl = `https://${GITHUB_USERNAME}:${GITHUB_TOKEN}@github.com/${GITHUB_USERNAME}/${repoData.name}.git`;
 
-            const gitCommands = [
-                'git init -b main',
-                `git config user.name "${GITHUB_USERNAME}"`, // Or a generic app name
-                `git config user.email "${gitUserEmail}"`,
-                'git add .',
-                'git commit -m "Initial commit: Farcaster miniapp template by WeeApp"',
-                `git remote add origin ${remoteUrl}`,
-                'git push -u origin main'
-            ];
+            // Git execution options
+            const execOptions = {
+                cwd: tempRepoPath,
+                stdio: 'pipe' as const, // Use 'pipe' to avoid token leakage
+                env: {
+                    ...process.env, // Inherit existing env variables
+                    GIT_AUTHOR_NAME: GITHUB_USERNAME,
+                    GIT_AUTHOR_EMAIL: gitUserEmail,
+                    GIT_COMMITTER_NAME: GITHUB_USERNAME,
+                    GIT_COMMITTER_EMAIL: gitUserEmail,
+                }
+            };
 
-            for (const cmd of gitCommands) {
-                console.log(`Executing: ${cmd} in ${tempRepoPath}`); // For debugging
-                execSync(cmd, { cwd: tempRepoPath, stdio: 'pipe' }); // Use 'pipe' to avoid token leakage to server logs if git prints full remote URL
+            console.log(`Initializing Git repository in ${tempRepoPath}`);
+            execSync('git init -b main', execOptions);
+
+            // The git config commands might be redundant if env vars are set, but can be kept for explicitness or local testing scenarios
+            // execSync(`git config user.name "${GITHUB_USERNAME}"`, execOptions);
+            // execSync(`git config user.email "${gitUserEmail}"`, execOptions);
+
+            console.log('Adding files to Git...');
+            execSync('git add .', execOptions);
+
+            // Check if there are changes to commit
+            console.log('Checking git status...');
+            const statusOutput = execSync('git status --porcelain', execOptions).toString().trim();
+            let commitMade = false;
+
+            if (!statusOutput) {
+                console.warn('No changes to commit. Template might be empty or all files are gitignored. Repository will be created empty.');
+            } else {
+                console.log('Committing files...');
+                execSync('git commit -m "Initial commit: Farcaster miniapp template by WeeApp"', execOptions);
+                commitMade = true;
+            }
+
+            if (commitMade) {
+                console.log(`Adding remote origin: ${repoData.html_url}`);
+                execSync(`git remote add origin ${remoteUrl}`, execOptions);
+
+                console.log('Pushing to GitHub...');
+                execSync('git push -u origin main', execOptions);
+            } else {
+                console.log('Skipping push as no commits were made.');
             }
 
             // 7. Cleanup temporary directory
